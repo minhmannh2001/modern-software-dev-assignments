@@ -8,8 +8,10 @@ load_dotenv()
 
 NUM_RUNS_TIMES = 5
 
-# TODO: Fill this in! Try to get as close to 100% correctness across all runs as possible.
-YOUR_SYSTEM_PROMPT = ""
+YOUR_SYSTEM_PROMPT = """You are a math expert. Solve problems by thinking step by step before giving the final answer.
+
+Break the problem into clear steps, show your reasoning, then put the final answer on the last line as "Answer: <number>".
+Only output a number in the Answer line, no units or extra text."""
 
 USER_PROMPT = """
 Solve this problem, then give the final answer on the last line as "Answer: <number>".
