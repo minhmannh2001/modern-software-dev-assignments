@@ -36,8 +36,9 @@ QUESTION = (
 )
 
 
-# TODO: Fill this in!
-YOUR_SYSTEM_PROMPT = ""
+YOUR_SYSTEM_PROMPT = """You are a Python developer. When given API documentation and a coding task, write a Python function that strictly follows the documented API.
+
+Use only the information provided in the context. Output a single fenced Python code block with all necessary imports."""
 
 
 # For this simple example
@@ -56,7 +57,7 @@ def YOUR_CONTEXT_PROVIDER(corpus: List[str]) -> List[str]:
 
     For example, return [] to simulate missing context, or [corpus[0]] to include the API docs.
     """
-    return []
+    return [corpus[0]]
 
 
 def make_user_prompt(question: str, context_docs: List[str]) -> str:
