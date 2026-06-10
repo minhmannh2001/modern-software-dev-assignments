@@ -7,8 +7,12 @@ load_dotenv()
 
 NUM_RUNS_TIMES = 5
 
-# TODO: Fill this in!
-YOUR_SYSTEM_PROMPT = ""
+YOUR_SYSTEM_PROMPT = """You are a math expert. When solving problems, think step by step:
+1. Break the problem into smaller parts
+2. Show your reasoning at each step
+3. Put the final answer on the last line as "Answer: <number>"
+
+For modular arithmetic problems, use properties like Euler's theorem or find the pattern of remainders."""
 
 
 USER_PROMPT = """
