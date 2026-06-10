@@ -14,8 +14,8 @@ the function is_valid_password(password: str) -> bool. No prose or comments.
 Keep the implementation minimal.
 """
 
-# TODO: Fill this in!
-YOUR_REFLEXION_PROMPT = ""
+YOUR_REFLEXION_PROMPT = """You are a coding assistant. You will be given a Python function that failed some tests, along with the failure details.
+Fix the function so all tests pass. Output ONLY a single fenced Python code block. No prose or comments."""
 
 
 # Ground-truth test suite used to evaluate generated code
@@ -96,7 +96,8 @@ def your_build_reflexion_context(prev_code: str, failures: List[str]) -> str:
 
     Return a string that will be sent as the user content alongside the reflexion system prompt.
     """
-    return ""
+    failures_str = "\n".join(f"- {f}" for f in failures)
+    return f"The following implementation failed some tests:\n\n```python\n{prev_code}\n```\n\nFailures:\n{failures_str}\n\nFix the function."
 
 
 def apply_reflexion(
