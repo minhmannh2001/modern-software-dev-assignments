@@ -2,9 +2,30 @@ import uuid
 from urllib.parse import urlencode
 
 import httpx
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse
 from starlette.routing import Route
+
+_OAUTH_PATHS = {"/oauth/authorize", "/oauth/callback"}
+_UNAUTHORIZED = JSONResponse({"error": "unauthorized"}, status_code=401)
+
+
+class BearerTokenMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path in _OAUTH_PATHS:
+            return await call_next(request)
+
+        auth_header = request.headers.get("Authorization", "")
+        parts = auth_header.split(" ", 1)
+        token = parts[1].strip() if len(parts) == 2 and parts[0] == "Bearer" else ""
+
+        user_info = lookup(token) if token else None
+        if user_info is None:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+        request.state.user = user_info
+        return await call_next(request)
 
 _GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
 _GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
