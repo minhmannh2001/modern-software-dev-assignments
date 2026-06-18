@@ -6,6 +6,12 @@ _TIMEOUT = 10.0
 
 
 def get_current_weather(lat: float, lon: float) -> str:
+    """Get current weather conditions at a location. Returns temperature (°C), wind speed (km/h), and weather code.
+
+    Args:
+        lat: Latitude of the location (e.g. 21.03 for Hanoi).
+        lon: Longitude of the location (e.g. 105.85 for Hanoi).
+    """
     try:
         resp = httpx.get(
             _FORECAST_URL,
@@ -30,6 +36,13 @@ def get_current_weather(lat: float, lon: float) -> str:
 
 
 def get_forecast(lat: float, lon: float, days: int) -> str:
+    """Get a daily weather forecast for a location up to 16 days ahead. Returns max/min temperature (°C) and weather code per day.
+
+    Args:
+        lat: Latitude of the location.
+        lon: Longitude of the location.
+        days: Number of forecast days (1–16).
+    """
     if days < 1 or days > 16:
         return "Error: days must be between 1 and 16."
     try:
@@ -60,6 +73,11 @@ def get_forecast(lat: float, lon: float, days: int) -> str:
 
 
 def get_weather_by_city(city: str) -> str:
+    """Get current weather conditions for a city by name. Resolves the city to coordinates, then returns temperature, wind speed, and weather code.
+
+    Args:
+        city: Name of the city (e.g. "Hanoi", "Paris", "Tokyo").
+    """
     try:
         geo = httpx.get(
             _GEOCODING_URL,

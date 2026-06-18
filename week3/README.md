@@ -160,6 +160,40 @@ Temperature: 31.2°C, Wind speed: 8.5 km/h, Weather code: 95
 
 **Errors:** Returns an error string if the city is not found or Open-Meteo is unreachable.
 
+## Connecting with Claude Code CLI
+
+After completing the [Authentication Flow](#authentication-flow) to get a session token, register the server with Claude Code:
+
+```bash
+claude mcp add --transport http weather http://localhost:8000/mcp \
+  -H "Authorization: Bearer <your-token>" \
+  -s project
+```
+
+Verify the server is connected:
+
+```bash
+claude mcp list
+```
+
+You should see `weather: http://localhost:8000/mcp (HTTP) - ✔ Connected`.
+
+Start a Claude session and ask about the weather:
+
+```
+What is the weather in Hanoi right now?
+```
+
+Claude will automatically call `get_weather_by_city` and return the result.
+
+> **Note:** The session token is stored in memory and is lost when the server restarts. After each server restart, repeat the Authentication Flow to get a new token, then re-add the server:
+> ```bash
+> claude mcp remove weather
+> claude mcp add --transport http weather http://localhost:8000/mcp \
+>   -H "Authorization: Bearer <new-token>" \
+>   -s project
+> ```
+
 ## Running Tests
 
 ```bash
