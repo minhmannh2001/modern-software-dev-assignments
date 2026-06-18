@@ -1,29 +1,21 @@
 from __future__ import annotations
 
-import json
 import os
 import re
 from typing import List
 
 from dotenv import load_dotenv
 from ollama import chat
+from pydantic import BaseModel
 
 load_dotenv()
 
 # Model used for LLM-based extraction; override via OLLAMA_MODEL env var
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
 
-# JSON schema for structured output: an object with an "items" array of strings
-_ACTION_ITEMS_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "items": {
-            "type": "array",
-            "items": {"type": "string"},
-        }
-    },
-    "required": ["items"],
-}
+
+class ActionItemsOutput(BaseModel):
+    items: List[str]
 
 BULLET_PREFIX_PATTERN = re.compile(r"^\s*([-*•]|\d+\.)\s+")
 KEYWORD_PREFIXES = (
@@ -102,11 +94,10 @@ def extract_action_items_llm(text: str) -> List[str]:
                 "content": f"Extract all action items from the following notes:\n\n{text}",
             },
         ],
-        format=_ACTION_ITEMS_SCHEMA,
+        format=ActionItemsOutput.model_json_schema(),
     )
 
-    result = json.loads(response.message.content)
-    return result.get("items", [])
+    return ActionItemsOutput.model_validate_json(response.message.content).items
 
 
 def _looks_imperative(sentence: str) -> bool:
