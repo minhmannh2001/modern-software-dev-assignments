@@ -1,14 +1,29 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 from typing import List
-import json
-from typing import Any
-from ollama import chat
+
 from dotenv import load_dotenv
+from ollama import chat
 
 load_dotenv()
+
+# Model used for LLM-based extraction; override via OLLAMA_MODEL env var
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+
+# JSON schema for structured output: an object with an "items" array of strings
+_ACTION_ITEMS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "items": {
+            "type": "array",
+            "items": {"type": "string"},
+        }
+    },
+    "required": ["items"],
+}
 
 BULLET_PREFIX_PATTERN = re.compile(r"^\s*([-*•]|\d+\.)\s+")
 KEYWORD_PREFIXES = (
@@ -64,6 +79,34 @@ def extract_action_items(text: str) -> List[str]:
         seen.add(lowered)
         unique.append(item)
     return unique
+
+
+def extract_action_items_llm(text: str) -> List[str]:
+    """Extract action items from free-form text using an Ollama LLM."""
+    if not text.strip():
+        return []
+
+    response = chat(
+        model=OLLAMA_MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a helpful assistant that extracts action items from notes. "
+                    "Return only clear, concise action items as an array of strings. "
+                    "If there are no action items, return an empty array."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Extract all action items from the following notes:\n\n{text}",
+            },
+        ],
+        format=_ACTION_ITEMS_SCHEMA,
+    )
+
+    result = json.loads(response.message.content)
+    return result.get("items", [])
 
 
 def _looks_imperative(sentence: str) -> bool:
