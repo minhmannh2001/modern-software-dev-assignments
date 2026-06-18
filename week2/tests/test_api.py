@@ -57,12 +57,10 @@ def test_get_note_not_found_returns_404(client):
 # --- /action-items ---
 
 def test_extract_returns_items(client):
-    with patch(_LLM_PATCH, return_value=_mock_llm(["fix the bug", "write tests"])):
-        res = client.post("/action-items/extract", json={"text": "fix the bug and write tests"})
+    res = client.post("/action-items/extract", json={"text": "- fix the bug\n- write tests"})
     assert res.status_code == 200
     body = res.json()
     assert len(body["items"]) == 2
-    assert body["items"][0]["text"] == "fix the bug"
 
 
 def test_extract_empty_text_returns_400(client):
@@ -71,19 +69,46 @@ def test_extract_empty_text_returns_400(client):
 
 
 def test_list_action_items_returns_list(client):
-    with patch(_LLM_PATCH, return_value=_mock_llm(["task one"])):
-        client.post("/action-items/extract", json={"text": "task one"})
+    client.post("/action-items/extract", json={"text": "- task one"})
     res = client.get("/action-items")
     assert res.status_code == 200
     assert isinstance(res.json(), list)
     assert any(item["text"] == "task one" for item in res.json())
 
 
+# --- /action-items/extract-llm ---
+
+def test_extract_llm_returns_items(client):
+    with patch(_LLM_PATCH, return_value=_mock_llm(["fix the bug", "write tests"])):
+        res = client.post("/action-items/extract-llm", json={"text": "we need to fix the bug and write tests"})
+    assert res.status_code == 200
+    body = res.json()
+    assert len(body["items"]) == 2
+    assert body["items"][0]["text"] == "fix the bug"
+
+
+def test_extract_llm_empty_text_returns_400(client):
+    res = client.post("/action-items/extract-llm", json={"text": ""})
+    assert res.status_code == 400
+
+
+# --- GET /notes ---
+
+def test_list_notes_returns_list(client):
+    client.post("/notes", json={"content": "first note"})
+    client.post("/notes", json={"content": "second note"})
+    res = client.get("/notes")
+    assert res.status_code == 200
+    data = res.json()
+    assert isinstance(data, list)
+    assert len(data) == 2
+    assert any(n["content"] == "first note" for n in data)
+
+
 def test_mark_done_returns_updated_status(client):
-    with patch(_LLM_PATCH, return_value=_mock_llm(["task one"])):
-        extract_body = client.post(
-            "/action-items/extract", json={"text": "task one"}
-        ).json()
+    extract_body = client.post(
+        "/action-items/extract", json={"text": "- task one"}
+    ).json()
     item_id = extract_body["items"][0]["id"]
 
     res = client.post(f"/action-items/{item_id}/done", json={"done": True})

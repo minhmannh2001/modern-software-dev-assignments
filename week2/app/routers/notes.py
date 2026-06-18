@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -18,6 +18,12 @@ class NoteResponse(BaseModel):
     id: int
     content: str
     created_at: str
+
+
+@router.get("", response_model=List[NoteResponse])
+def list_notes() -> List[NoteResponse]:
+    rows = db.list_notes()
+    return [NoteResponse(id=r["id"], content=r["content"], created_at=r["created_at"]) for r in rows]
 
 
 @router.post("", response_model=NoteResponse)
