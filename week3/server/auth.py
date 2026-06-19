@@ -48,7 +48,8 @@ _GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
 _GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 _GITHUB_USER_URL = "https://api.github.com/user"
 
-_pending_states: set[str] = set()
+_pending_authorizations: dict[str, dict] = {}  # github_state → {code_challenge, redirect_uri, client_id, mcp_state}
+_auth_code_store: dict[str, dict] = {}          # auth_code → {github_username, code_challenge, redirect_uri, client_id, expires_at}
 _token_store: dict[str, dict] = {}
 
 
@@ -99,21 +100,36 @@ def make_metadata_router(config) -> list[Route]:
 
 def make_auth_router(config) -> list[Route]:
     async def authorize(request: Request):
-        state = str(uuid.uuid4())
-        _pending_states.add(state)
+        client_id = request.query_params.get("client_id", "")
+        redirect_uri = request.query_params.get("redirect_uri", "")
+        code_challenge = request.query_params.get("code_challenge", "")
+        mcp_state = request.query_params.get("state", "")
+
+        if client_id not in _client_store:
+            return JSONResponse({"error": "unknown client_id"}, status_code=400)
+        if redirect_uri not in _client_store[client_id]["redirect_uris"]:
+            return JSONResponse({"error": "redirect_uri not registered for client"}, status_code=400)
+
+        github_state = str(uuid.uuid4())
+        _pending_authorizations[github_state] = {
+            "code_challenge": code_challenge,
+            "redirect_uri": redirect_uri,
+            "client_id": client_id,
+            "mcp_state": mcp_state,
+        }
         params = {
             "client_id": config.github_client_id,
             "redirect_uri": config.redirect_uri,
             "scope": "read:user",
-            "state": state,
+            "state": github_state,
         }
         return RedirectResponse(f"{_GITHUB_AUTHORIZE_URL}?{urlencode(params)}")
 
     async def callback(request: Request):
-        state = request.query_params.get("state", "")
-        if state not in _pending_states:
+        github_state = request.query_params.get("state", "")
+        if github_state not in _pending_authorizations:
             return JSONResponse({"error": "invalid state"}, status_code=400)
-        _pending_states.discard(state)
+        pending = _pending_authorizations.pop(github_state)
 
         code = request.query_params.get("code", "")
         try:
@@ -143,9 +159,17 @@ def make_auth_router(config) -> list[Route]:
         except httpx.HTTPError as e:
             return JSONResponse({"error": f"GitHub API error: {e}"}, status_code=502)
 
-        opaque_token = str(uuid.uuid4())
-        _token_store[opaque_token] = {"github_username": github_username}
-        return JSONResponse({"token": opaque_token, "user": github_username})
+        auth_code = str(uuid.uuid4())
+        _auth_code_store[auth_code] = {
+            "github_username": github_username,
+            "code_challenge": pending["code_challenge"],
+            "redirect_uri": pending["redirect_uri"],
+            "client_id": pending["client_id"],
+        }
+        redirect_url = (
+            f"{pending['redirect_uri']}?code={auth_code}&state={pending['mcp_state']}"
+        )
+        return RedirectResponse(redirect_url)
 
     return [
         Route("/oauth/authorize", authorize),

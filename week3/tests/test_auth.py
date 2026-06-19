@@ -1,9 +1,8 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from starlette.testclient import TestClient
 from starlette.applications import Starlette
-from starlette.routing import Route
+from starlette.testclient import TestClient
 
 import server.auth as auth_module
 from server.auth import lookup, make_auth_router
@@ -13,14 +12,23 @@ _FAKE_CONFIG.github_client_id = "test_client_id"
 _FAKE_CONFIG.github_client_secret = "test_secret"
 _FAKE_CONFIG.redirect_uri = "http://localhost:8000/oauth/callback"
 
+_TEST_CLIENT_ID = "test-client-id"
+_TEST_REDIRECT_URI = "http://localhost:54321/callback"
+
 
 @pytest.fixture(autouse=True)
 def clear_stores():
-    auth_module._pending_states.clear()
+    auth_module._pending_authorizations.clear()
+    auth_module._auth_code_store.clear()
     auth_module._token_store.clear()
+    auth_module._client_store.clear()
+    # pre-register a test client so authorize calls work
+    auth_module._client_store[_TEST_CLIENT_ID] = {"redirect_uris": [_TEST_REDIRECT_URI]}
     yield
-    auth_module._pending_states.clear()
+    auth_module._pending_authorizations.clear()
+    auth_module._auth_code_store.clear()
     auth_module._token_store.clear()
+    auth_module._client_store.clear()
 
 
 @pytest.fixture
@@ -44,15 +52,39 @@ def _mock_github(username: str = "octocat"):
     return token_resp, user_resp
 
 
+def _pending_state(mcp_state: str = "mcp-state") -> str:
+    """Inject a pending authorization and return the github_state key."""
+    github_state = "test-github-state"
+    auth_module._pending_authorizations[github_state] = {
+        "code_challenge": "test-challenge",
+        "redirect_uri": _TEST_REDIRECT_URI,
+        "client_id": _TEST_CLIENT_ID,
+        "mcp_state": mcp_state,
+    }
+    return github_state
+
+
 def test_authorize_redirects_to_github(client):
-    res = client.get("/oauth/authorize")
+    res = client.get("/oauth/authorize", params={
+        "client_id": _TEST_CLIENT_ID,
+        "redirect_uri": _TEST_REDIRECT_URI,
+        "code_challenge": "challenge",
+        "code_challenge_method": "S256",
+        "state": "mcp-state",
+    })
     assert res.is_redirect
     assert "github.com/login/oauth/authorize" in res.headers["location"]
 
 
-def test_authorize_stores_state(client):
-    client.get("/oauth/authorize")
-    assert len(auth_module._pending_states) == 1
+def test_authorize_stores_pending_authorization(client):
+    client.get("/oauth/authorize", params={
+        "client_id": _TEST_CLIENT_ID,
+        "redirect_uri": _TEST_REDIRECT_URI,
+        "code_challenge": "challenge",
+        "code_challenge_method": "S256",
+        "state": "mcp-state",
+    })
+    assert len(auth_module._pending_authorizations) == 1
 
 
 def test_callback_unknown_state_returns_400(client):
@@ -60,37 +92,41 @@ def test_callback_unknown_state_returns_400(client):
     assert res.status_code == 400
 
 
-def test_callback_success_returns_token_and_user(client):
+def test_callback_success_redirects_to_client_with_auth_code(client):
     token_resp, user_resp = _mock_github("octocat")
+    github_state = _pending_state("my-mcp-state")
     with patch("server.auth.httpx.post", return_value=token_resp), \
          patch("server.auth.httpx.get", return_value=user_resp):
-        auth_module._pending_states.add("valid-state")
-        res = client.get("/oauth/callback?code=abc&state=valid-state")
-    assert res.status_code == 200
-    body = res.json()
-    assert "token" in body
-    assert body["user"] == "octocat"
+        res = client.get(f"/oauth/callback?code=abc&state={github_state}")
+    assert res.is_redirect
+    location = res.headers["location"]
+    assert _TEST_REDIRECT_URI in location
+    assert "code=" in location
+    assert "state=my-mcp-state" in location
 
 
 def test_callback_github_token_not_stored(client):
     token_resp, user_resp = _mock_github()
+    github_state = _pending_state()
     with patch("server.auth.httpx.post", return_value=token_resp), \
          patch("server.auth.httpx.get", return_value=user_resp):
-        auth_module._pending_states.add("valid-state")
-        client.get("/oauth/callback?code=abc&state=valid-state")
+        client.get(f"/oauth/callback?code=abc&state={github_state}")
     assert lookup("gh_secret_token") is None
 
 
-def test_lookup_valid_token_returns_user_info(client):
+def test_callback_stores_auth_code_with_pkce_challenge(client):
     token_resp, user_resp = _mock_github("octocat")
+    github_state = _pending_state()
     with patch("server.auth.httpx.post", return_value=token_resp), \
          patch("server.auth.httpx.get", return_value=user_resp):
-        auth_module._pending_states.add("valid-state")
-        res = client.get("/oauth/callback?code=abc&state=valid-state")
-    opaque_token = res.json()["token"]
-    info = lookup(opaque_token)
-    assert info is not None
-    assert info["github_username"] == "octocat"
+        res = client.get(f"/oauth/callback?code=abc&state={github_state}")
+    from urllib.parse import urlparse, parse_qs
+    params = parse_qs(urlparse(res.headers["location"]).query)
+    auth_code = params["code"][0]
+    stored = auth_module._auth_code_store.get(auth_code)
+    assert stored is not None
+    assert stored["github_username"] == "octocat"
+    assert stored["code_challenge"] == "test-challenge"
 
 
 def test_lookup_unknown_token_returns_none():
