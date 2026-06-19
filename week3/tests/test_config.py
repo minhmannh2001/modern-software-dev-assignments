@@ -1,21 +1,21 @@
 import os
+import sys
+from unittest.mock import patch
+
 import pytest
 
 
 def load_config(env: dict):
-    """Helper: load config with a controlled environment."""
-    import importlib
-    import sys
-
-    # Patch env, reload module fresh each time
+    """Helper: load config with a controlled environment, bypassing .env file."""
     original = os.environ.copy()
     os.environ.clear()
     os.environ.update(env)
     try:
         if "server.config" in sys.modules:
             del sys.modules["server.config"]
-        from server.config import Config
-        return Config()
+        with patch("dotenv.load_dotenv"):  # prevent .env file from overriding test env
+            from server.config import Config
+            return Config()
     finally:
         os.environ.clear()
         os.environ.update(original)

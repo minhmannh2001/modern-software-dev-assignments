@@ -14,6 +14,7 @@ class Config:
     github_client_secret: str
     redirect_uri: str
     port: int
+    server_url: str
 
     def __init__(self) -> None:
         missing = [k for k in _REQUIRED if not os.getenv(k)]
@@ -24,3 +25,4 @@ class Config:
         self.github_client_secret = os.environ["GITHUB_CLIENT_SECRET"]
         self.redirect_uri = os.environ["REDIRECT_URI"]
         self.port = int(os.getenv("PORT", "8000"))
+        self.server_url = os.getenv("SERVER_URL", f"http://localhost:{self.port}")

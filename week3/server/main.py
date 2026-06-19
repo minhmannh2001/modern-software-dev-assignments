@@ -1,6 +1,6 @@
 from mcp.server.fastmcp import FastMCP
 
-from .auth import BearerTokenMiddleware, make_auth_router
+from .auth import BearerTokenMiddleware, make_auth_router, make_metadata_router
 from .config import Config
 from .tools.weather import get_current_weather, get_forecast, get_weather_by_city
 
@@ -18,10 +18,11 @@ def create_app(config=None):
     app = mcp.streamable_http_app()
 
     # Prepend OAuth routes so they match before /mcp
+    metadata_routes = make_metadata_router(config)
     oauth_routes = make_auth_router(config)
-    app.router.routes = oauth_routes + list(app.router.routes)
+    app.router.routes = metadata_routes + oauth_routes + list(app.router.routes)
 
-    app.add_middleware(BearerTokenMiddleware)
+    app.add_middleware(BearerTokenMiddleware, server_url=config.server_url)
 
     return app
 

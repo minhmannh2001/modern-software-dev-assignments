@@ -8,12 +8,22 @@ from starlette.responses import JSONResponse, RedirectResponse
 from starlette.routing import Route
 
 _OAUTH_PATHS = {"/oauth/authorize", "/oauth/callback"}
-_UNAUTHORIZED = JSONResponse({"error": "unauthorized"}, status_code=401)
+_PUBLIC_PATHS = _OAUTH_PATHS | {
+    "/.well-known/oauth-protected-resource",
+    "/.well-known/oauth-authorization-server",
+}
 
 
 class BearerTokenMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, server_url: str = "http://localhost:8000"):
+        super().__init__(app)
+        self._www_authenticate = (
+            f'Bearer realm="MCP Weather Server", '
+            f'resource_metadata="{server_url}/.well-known/oauth-protected-resource"'
+        )
+
     async def dispatch(self, request: Request, call_next):
-        if request.url.path in _OAUTH_PATHS:
+        if request.url.path in _PUBLIC_PATHS:
             return await call_next(request)
 
         auth_header = request.headers.get("Authorization", "")
@@ -22,7 +32,11 @@ class BearerTokenMiddleware(BaseHTTPMiddleware):
 
         user_info = lookup(token) if token else None
         if user_info is None:
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
+            return JSONResponse(
+                {"error": "unauthorized"},
+                status_code=401,
+                headers={"WWW-Authenticate": self._www_authenticate},
+            )
 
         request.state.user = user_info
         return await call_next(request)
@@ -37,6 +51,31 @@ _token_store: dict[str, dict] = {}
 
 def lookup(token: str) -> dict | None:
     return _token_store.get(token)
+
+
+def make_metadata_router(config) -> list[Route]:
+    async def protected_resource(request: Request):
+        return JSONResponse({
+            "resource": config.server_url,
+            "authorization_servers": [config.server_url],
+        })
+
+    async def authorization_server(request: Request):
+        base = config.server_url
+        return JSONResponse({
+            "issuer": base,
+            "authorization_endpoint": f"{base}/oauth/authorize",
+            "token_endpoint": f"{base}/oauth/token",
+            "registration_endpoint": f"{base}/register",
+            "response_types_supported": ["code"],
+            "grant_types_supported": ["authorization_code"],
+            "code_challenge_methods_supported": ["S256"],
+        })
+
+    return [
+        Route("/.well-known/oauth-protected-resource", protected_resource),
+        Route("/.well-known/oauth-authorization-server", authorization_server),
+    ]
 
 
 def make_auth_router(config) -> list[Route]:
