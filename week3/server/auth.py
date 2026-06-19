@@ -11,7 +11,10 @@ _OAUTH_PATHS = {"/oauth/authorize", "/oauth/callback"}
 _PUBLIC_PATHS = _OAUTH_PATHS | {
     "/.well-known/oauth-protected-resource",
     "/.well-known/oauth-authorization-server",
+    "/register",
 }
+
+_client_store: dict[str, dict] = {}
 
 
 class BearerTokenMiddleware(BaseHTTPMiddleware):
@@ -51,6 +54,22 @@ _token_store: dict[str, dict] = {}
 
 def lookup(token: str) -> dict | None:
     return _token_store.get(token)
+
+
+def make_registration_router() -> list[Route]:
+    async def register(request: Request):
+        body = await request.json()
+        redirect_uris = body.get("redirect_uris")
+        if not redirect_uris:
+            return JSONResponse({"error": "redirect_uris is required"}, status_code=400)
+        client_id = str(uuid.uuid4())
+        _client_store[client_id] = {
+            "redirect_uris": redirect_uris,
+            "client_name": body.get("client_name", ""),
+        }
+        return JSONResponse({"client_id": client_id, "redirect_uris": redirect_uris})
+
+    return [Route("/register", register, methods=["POST"])]
 
 
 def make_metadata_router(config) -> list[Route]:

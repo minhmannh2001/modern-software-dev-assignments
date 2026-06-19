@@ -65,6 +65,22 @@ def test_metadata_server_url_reflects_config(client):
     assert "http://localhost:8000" in res.json()["resource"]
 
 
+def test_register_returns_client_id(client):
+    res = client.post("/register", json={"redirect_uris": ["http://localhost:54321/callback"]})
+    assert res.status_code == 200
+    assert "client_id" in res.json()
+
+
+def test_register_without_redirect_uris_returns_400(client):
+    res = client.post("/register", json={"client_name": "Claude CLI"})
+    assert res.status_code == 400
+
+
+def test_register_bypasses_middleware(client):
+    res = client.post("/register", json={"redirect_uris": ["http://localhost:54321/callback"]})
+    assert res.status_code == 200
+
+
 def test_unauthenticated_mcp_request_returns_401(client):
     res = client.post("/mcp")
     assert res.status_code == 401
