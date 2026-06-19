@@ -65,19 +65,26 @@ INFO:     Uvicorn running on http://0.0.0.0:8000
 
 ## Authentication Flow
 
-Before calling any tool, you need a session token:
+The server implements the [MCP Authorization Spec](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization) (OAuth 2.1 + PKCE). Spec-compliant MCP clients like Claude Code CLI handle the entire OAuth dance automatically — no manual token management needed.
 
-1. Open a browser and visit: `http://localhost:8000/oauth/authorize`
+**How it works under the hood:**
+1. Claude CLI connects to the server → receives `401` with `WWW-Authenticate` header
+2. Claude CLI fetches `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server` to discover OAuth endpoints
+3. Claude CLI registers itself via `POST /register` (Dynamic Client Registration)
+4. Claude CLI opens a browser → you log in with GitHub → server redirects back to Claude CLI with an authorization code
+5. Claude CLI exchanges the code for a bearer token via `POST /oauth/token` (PKCE-verified)
+6. Claude CLI stores the token and uses it automatically on all subsequent requests
+
+**Manual flow (for MCP Inspector or testing):**
+
+1. Open a browser and visit: `http://localhost:8000/oauth/authorize?client_id=manual&redirect_uri=http://localhost:8000/oauth/callback&code_challenge=abc&code_challenge_method=S256&state=test`
 2. You'll be redirected to GitHub — authorize the app
-3. GitHub redirects back to the server, which returns a JSON response:
-   ```json
-   { "token": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", "user": "your-github-username" }
-   ```
-4. Copy the `token` value — use it as your Bearer token in all subsequent requests
+3. GitHub redirects back; the server redirects to the callback URL with `?code=<auth_code>`
+4. Exchange the code at `POST /oauth/token` with your `code_verifier`
 
 ## Connecting with MCP Inspector
 
-The [MCP Inspector](https://github.com/modelcontextprotocol/inspector) lets you browse and call tools interactively.
+The [MCP Inspector](https://github.com/modelcontextprotocol/inspector) does not implement the MCP Authorization Spec, so you need to supply a Bearer token manually.
 
 ```bash
 npx @modelcontextprotocol/inspector
@@ -86,7 +93,7 @@ npx @modelcontextprotocol/inspector
 In the Inspector UI:
 1. Set **Transport** to `Streamable HTTP`
 2. Set **URL** to `http://localhost:8000/mcp`
-3. Add a custom header: `Authorization: Bearer <your-token>` (from the auth step above)
+3. Add a custom header: `Authorization: Bearer <your-token>` (obtained via the manual flow above)
 4. Click **Connect** — you should see the 3 weather tools listed
 
 ## Tool Reference
@@ -162,13 +169,17 @@ Temperature: 31.2°C, Wind speed: 8.5 km/h, Weather code: 95
 
 ## Connecting with Claude Code CLI
 
-After completing the [Authentication Flow](#authentication-flow) to get a session token, register the server with Claude Code:
+Register the server once — Claude CLI handles OAuth automatically:
 
 ```bash
-claude mcp add --transport http weather http://localhost:8000/mcp \
-  -H "Authorization: Bearer <your-token>" \
-  -s project
+claude mcp add --transport http weather http://localhost:8000/mcp -s project
 ```
+
+On first use, Claude CLI will:
+1. Detect the 401 response and discover the OAuth endpoints automatically
+2. Register itself with the server
+3. Open a browser for GitHub login
+4. Exchange the authorization code for a token — stored securely in the system keychain
 
 Verify the server is connected:
 
@@ -184,15 +195,7 @@ Start a Claude session and ask about the weather:
 What is the weather in Hanoi right now?
 ```
 
-Claude will automatically call `get_weather_by_city` and return the result.
-
-> **Note:** The session token is stored in memory and is lost when the server restarts. After each server restart, repeat the Authentication Flow to get a new token, then re-add the server:
-> ```bash
-> claude mcp remove weather
-> claude mcp add --transport http weather http://localhost:8000/mcp \
->   -H "Authorization: Bearer <new-token>" \
->   -s project
-> ```
+> **Note on server restarts:** Tokens are stored in memory and lost on server restart. When the server restarts, your stored token becomes invalid (401). Claude CLI will automatically re-trigger the browser login flow on the next request — no manual steps needed.
 
 ## Running Tests
 
