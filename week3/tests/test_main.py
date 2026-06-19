@@ -1,3 +1,5 @@
+import base64
+import hashlib
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -153,6 +155,107 @@ def test_callback_redirects_to_client_with_auth_code(client):
     assert "http://localhost:54321/callback" in location
     assert "code=" in location
     assert "state=my-mcp-state" in location
+
+
+def _make_pkce_pair():
+    verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+    challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(verifier.encode()).digest()
+    ).rstrip(b"=").decode()
+    return verifier, challenge
+
+
+def _seed_auth_code(code_challenge: str, client_id: str = "test-client") -> str:
+    auth_module._client_store[client_id] = {"redirect_uris": ["http://localhost:54321/callback"]}
+    auth_code = "test-auth-code-123"
+    auth_module._auth_code_store[auth_code] = {
+        "github_username": "octocat",
+        "code_challenge": code_challenge,
+        "redirect_uri": "http://localhost:54321/callback",
+        "client_id": client_id,
+    }
+    return auth_code
+
+
+# --- token endpoint ---
+
+def test_token_endpoint_valid_exchange_returns_access_token(client):
+    verifier, challenge = _make_pkce_pair()
+    auth_code = _seed_auth_code(challenge)
+    res = client.post("/oauth/token", data={
+        "grant_type": "authorization_code",
+        "code": auth_code,
+        "code_verifier": verifier,
+        "redirect_uri": "http://localhost:54321/callback",
+        "client_id": "test-client",
+    })
+    assert res.status_code == 200
+    assert "access_token" in res.json()
+    assert res.json()["token_type"] == "Bearer"
+
+
+def test_access_token_accepted_by_mcp_endpoint(client):
+    verifier, challenge = _make_pkce_pair()
+    auth_code = _seed_auth_code(challenge)
+    token_res = client.post("/oauth/token", data={
+        "grant_type": "authorization_code",
+        "code": auth_code,
+        "code_verifier": verifier,
+        "redirect_uri": "http://localhost:54321/callback",
+        "client_id": "test-client",
+    })
+    access_token = token_res.json()["access_token"]
+    mcp_res = client.post("/mcp", headers={"Authorization": f"Bearer {access_token}"})
+    assert mcp_res.status_code != 401
+
+
+def test_token_wrong_verifier_returns_400(client):
+    _, challenge = _make_pkce_pair()
+    auth_code = _seed_auth_code(challenge)
+    res = client.post("/oauth/token", data={
+        "grant_type": "authorization_code",
+        "code": auth_code,
+        "code_verifier": "wrong-verifier",
+        "redirect_uri": "http://localhost:54321/callback",
+        "client_id": "test-client",
+    })
+    assert res.status_code == 400
+
+
+def test_token_code_single_use(client):
+    verifier, challenge = _make_pkce_pair()
+    auth_code = _seed_auth_code(challenge)
+    payload = {
+        "grant_type": "authorization_code",
+        "code": auth_code,
+        "code_verifier": verifier,
+        "redirect_uri": "http://localhost:54321/callback",
+        "client_id": "test-client",
+    }
+    assert client.post("/oauth/token", data=payload).status_code == 200
+    assert client.post("/oauth/token", data=payload).status_code == 400
+
+
+def test_token_unknown_code_returns_400(client):
+    res = client.post("/oauth/token", data={
+        "grant_type": "authorization_code",
+        "code": "nonexistent-code",
+        "code_verifier": "any",
+        "redirect_uri": "http://localhost:54321/callback",
+        "client_id": "test-client",
+    })
+    assert res.status_code == 400
+
+
+def test_token_endpoint_bypasses_middleware(client):
+    res = client.post("/oauth/token", data={
+        "grant_type": "authorization_code",
+        "code": "x",
+        "code_verifier": "y",
+        "redirect_uri": "z",
+        "client_id": "w",
+    })
+    assert res.status_code != 401
 
 
 def test_unauthenticated_mcp_request_returns_401(client):

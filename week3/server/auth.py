@@ -1,3 +1,5 @@
+import base64
+import hashlib
 import uuid
 from urllib.parse import urlencode
 
@@ -12,6 +14,7 @@ _PUBLIC_PATHS = _OAUTH_PATHS | {
     "/.well-known/oauth-protected-resource",
     "/.well-known/oauth-authorization-server",
     "/register",
+    "/oauth/token",
 }
 
 _client_store: dict[str, dict] = {}
@@ -55,6 +58,39 @@ _token_store: dict[str, dict] = {}
 
 def lookup(token: str) -> dict | None:
     return _token_store.get(token)
+
+
+def _verify_pkce(code_verifier: str, code_challenge: str) -> bool:
+    digest = hashlib.sha256(code_verifier.encode()).digest()
+    computed = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+    return computed == code_challenge
+
+
+def make_token_router() -> list[Route]:
+    async def token(request: Request):
+        form = await request.form()
+        code = form.get("code", "")
+        code_verifier = form.get("code_verifier", "")
+        client_id = form.get("client_id", "")
+        redirect_uri = form.get("redirect_uri", "")
+
+        stored = _auth_code_store.get(code)
+        if stored is None:
+            return JSONResponse({"error": "invalid_grant"}, status_code=400)
+        if stored["client_id"] != client_id:
+            return JSONResponse({"error": "client_id mismatch"}, status_code=400)
+        if stored["redirect_uri"] != redirect_uri:
+            return JSONResponse({"error": "redirect_uri mismatch"}, status_code=400)
+        if not _verify_pkce(code_verifier, stored["code_challenge"]):
+            return JSONResponse({"error": "invalid code_verifier"}, status_code=400)
+
+        del _auth_code_store[code]
+
+        opaque_token = str(uuid.uuid4())
+        _token_store[opaque_token] = {"github_username": stored["github_username"]}
+        return JSONResponse({"access_token": opaque_token, "token_type": "Bearer"})
+
+    return [Route("/oauth/token", token, methods=["POST"])]
 
 
 def make_registration_router() -> list[Route]:

@@ -1,6 +1,6 @@
 from mcp.server.fastmcp import FastMCP
 
-from .auth import BearerTokenMiddleware, make_auth_router, make_metadata_router, make_registration_router
+from .auth import BearerTokenMiddleware, make_auth_router, make_metadata_router, make_registration_router, make_token_router
 from .config import Config
 from .tools.weather import get_current_weather, get_forecast, get_weather_by_city
 
@@ -20,8 +20,9 @@ def create_app(config=None):
     # Prepend OAuth routes so they match before /mcp
     metadata_routes = make_metadata_router(config)
     registration_routes = make_registration_router()
+    token_routes = make_token_router()
     oauth_routes = make_auth_router(config)
-    app.router.routes = metadata_routes + registration_routes + oauth_routes + list(app.router.routes)
+    app.router.routes = metadata_routes + registration_routes + token_routes + oauth_routes + list(app.router.routes)
 
     app.add_middleware(BearerTokenMiddleware, server_url=config.server_url)
 
